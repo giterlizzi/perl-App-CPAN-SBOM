@@ -1,0 +1,61 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use utf8;
+
+use App::CPAN::SBOM;
+
+exit App::CPAN::SBOM->run(@ARGV) unless caller();
+
+__END__
+
+=encoding utf-8
+
+=head1 NAME
+
+cpan-sbom - CPAN SBOM (Software Bill of Materials) generator
+
+=head1 SYNOPSIS
+
+    cpan-sbom --author NAME --meta PATH
+    cpan-sbom --distribution NAME@VERSION
+
+    cpan-sbom [--help|--man|-v]
+
+    Options:
+          --author NAME         Author Name
+          --meta PATH           META (or MYMETA) path
+
+          --distibution NAME    Distribution name
+
+          --maxdepth=NUM        Max depth (default: 1)
+
+          --help                Brief help message
+          --man                 Full documentation
+      -v, --version             Print version
+
+=head1 DESCRIPTION
+
+C<cpan-sbom> CPAN SBOM (Software Bill of Materials) generator
+
+=head1 EXAMPLES
+
+    $ cpan-sbom --author GDT --meta path/META.json > bom.json
+
+    $ cpan-sbom --distribution libwww-perl@6.78 > bom.json
+
+=head1 SEE ALSO
+
+L<SBOM::CycloneDX>
+
+=head1 AUTHOR
+
+L<Giuseppe Di Terlizzi|https://metacpan.org/author/gdt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright © 2025 L<Giuseppe Di Terlizzi|https://metacpan.org/author/gdt>
+
+You may use and distribute this module according to the same terms
+that Perl is distributed under.
