@@ -27,7 +27,7 @@ cpan-sbom - CPAN SBOM (Software Bill of Materials) generator
           --author NAME         Author Name
           --meta PATH           META (or MYMETA) path
 
-          --distibution NAME    Distribution name
+          --distribution NAME   Distribution name
 
           --maxdepth=NUM        Max depth (default: 1)
 

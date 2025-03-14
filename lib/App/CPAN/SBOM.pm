@@ -71,7 +71,7 @@ VERSION
 
     }
 
-    unless ($options{meta} && $options{author}) {
+    unless (($options{meta} && $options{author}) || $options{distribution}) {
         pod2usage(-exitstatus => 0, -verbose => 0);
     }
 
