@@ -5,6 +5,7 @@ use strict;
 use warnings;
 use utf8;
 
+use CPAN::Audit;
 use CPAN::Meta;
 use Data::Dumper;
 use Getopt::Long qw(GetOptionsFromArray :config gnu_compat);
@@ -12,7 +13,6 @@ use MetaCPAN::Client;
 use Pod::Usage qw(pod2usage);
 use URI::PackageURL;
 
-use SBOM::CycloneDX;
 use SBOM::CycloneDX::Component;
 use SBOM::CycloneDX::ExternalReference;
 use SBOM::CycloneDX::Hash;
@@ -20,8 +20,13 @@ use SBOM::CycloneDX::License;
 use SBOM::CycloneDX::Metadata;
 use SBOM::CycloneDX::OrganizationalContact;
 use SBOM::CycloneDX::Util qw(cpan_meta_to_spdx_license cyclonedx_tool cyclonedx_component);
+use SBOM::CycloneDX::Vulnerability::Affect;
+use SBOM::CycloneDX::Vulnerability::Rating;
+use SBOM::CycloneDX::Vulnerability::Source;
+use SBOM::CycloneDX::Vulnerability;
+use SBOM::CycloneDX;
 
-our $VERSION = '1.00';
+our $VERSION = '1.01';
 
 sub cli_error {
     my ($error) = @_;
@@ -45,6 +50,8 @@ sub run {
             author=s
             distribution=s
             maxdepth=i
+
+            cyclonedx-spec-version=s
         )
     ) or pod2usage(-verbose => 0);
 
@@ -75,9 +82,9 @@ VERSION
         pod2usage(-exitstatus => 0, -verbose => 0);
     }
 
-    my $bom = SBOM::CycloneDX->new;
-
     $options{maxdepth} //= 1;
+
+    my $bom = SBOM::CycloneDX->new;
 
     if (defined $options{meta}) {
         make_sbom_from_meta(
@@ -212,6 +219,13 @@ sub make_sbom_from_dist {
 
     $bom->metadata->component($root_component);
 
+    make_vulnerabilities(
+        bom          => $bom,
+        distribution => $dist_data->distribution,
+        version      => $dist_data->version,
+        bom_ref      => $purl->to_string
+    );
+
     foreach my $dependency (@{$dist_data->dependency}) {
         if ($dependency->{phase} eq 'runtime' and $dependency->{relationship} eq 'requires') {
             next if ($dependency->{module} eq 'perl');
@@ -261,11 +275,11 @@ sub make_authors {
     foreach my $metadata_author (@{$metadata_authors}) {
         if ($metadata_author =~ /(.*) <(.*)>/) {
             my ($name, $email) = $metadata_author =~ /(.*) <(.*)>/;
-            push @authors, SBOM::CycloneDX::OrganizationalContact->new(name => $name, email => $email);
+            push @authors, SBOM::CycloneDX::OrganizationalContact->new(name => $name, email => _clean_email($email));
         }
         elsif ($metadata_author =~ /(.*), (.*)/) {
             my ($name, $email) = $metadata_author =~ /(.*), (.*)/;
-            push @authors, SBOM::CycloneDX::OrganizationalContact->new(name => $name, email => $email);
+            push @authors, SBOM::CycloneDX::OrganizationalContact->new(name => $name, email => _clean_email($email));
         }
         else {
             push @authors, SBOM::CycloneDX::OrganizationalContact->new(name => $metadata_author);
@@ -273,6 +287,19 @@ sub make_authors {
     }
 
     return @authors;
+
+}
+
+sub _clean_email {
+
+    my $email = shift;
+
+    $email =~ s/E<lt>//;
+    $email =~ s/<lt>//;
+    $email =~ s/<gt>//;
+    $email =~ s/\[at\]/@/;
+
+    return $email;
 
 }
 
@@ -350,6 +377,8 @@ sub make_dep_compoment {
         $bom->components->push($component);
     }
 
+    make_vulnerabilities(bom => $bom, distribution => $distribution, version => $version, bom_ref => $purl->to_string);
+
     $bom->add_dependency($parent_component, [$component]);
 
     if ($depth < $maxdepth) {
@@ -371,6 +400,47 @@ sub make_dep_compoment {
     }
 
     return $component;
+
+}
+
+sub make_vulnerabilities {
+
+    my (%options) = @_;
+
+    my $bom          = $options{bom};
+    my $distribution = $options{distribution};
+    my $version      = $options{version};
+    my $bom_ref      = $options{bom_ref};
+
+    my $audit = CPAN::Audit->new;
+
+    my $result = $audit->command('dist', $distribution, $version);
+
+    return unless (defined $result->{dists}->{$distribution});
+
+    foreach my $advisory (@{$result->{dists}->{$distribution}->{advisories}}) {
+
+        my $description = $advisory->{description};
+        my $severity    = $advisory->{severity} || 'unknown';
+        my @cves        = @{$advisory->{cves}};
+        my $cpansa      = $advisory->{id};
+        my @references  = @{$advisory->{references}};
+
+        foreach my $cve (@cves) {
+
+            my $vulnerability = SBOM::CycloneDX::Vulnerability->new(
+                id          => $cve,
+                description => $description,
+                source      => SBOM::CycloneDX::Vulnerability::Source->new(
+                    name => 'NVD',
+                    url  => "https://nvd.nist.gov/vuln/detail/$cve"    # TODO for SBOM::CycloneDX auto generate url
+                ),
+                affects => [SBOM::CycloneDX::Vulnerability::Affect->new(ref      => $bom_ref)],
+                ratings => [SBOM::CycloneDX::Vulnerability::Rating->new(severity => $severity)]
+            );
+            $bom->vulnerabilities->add($vulnerability);
+        }
+    }
 
 }
 
