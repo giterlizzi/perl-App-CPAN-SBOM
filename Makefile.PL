@@ -14,7 +14,15 @@ WriteMakefile(
     EXE_FILES          => ['bin/cpan-sbom'],
     CONFIGURE_REQUIRES => {'ExtUtils::MakeMaker' => '0'},
     TEST_REQUIRES      => {'Test::More'          => '0'},
-    PREREQ_PM  => {'SBOM::CycloneDX' => 0, 'CPAN::Audit' => 0, 'MetaCPAN::Client' => 0, 'URI::PackageURL' => '2.22'},
+    PREREQ_PM          => {
+        'SBOM::CycloneDX'  => 0,
+        'CPAN::Audit'      => 0,
+        'MetaCPAN::Client' => 0,
+        'URI::PackageURL'  => '2.22',
+        'MIME::Base64'     => 0,
+        'HTTP::Tiny'       => 0,
+        'Cpanel::JSON::XS' => 0,
+    },
     META_MERGE => {
         'meta-spec' => {version => 2},
         'resources' => {

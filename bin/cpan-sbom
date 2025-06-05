@@ -18,22 +18,48 @@ cpan-sbom - CPAN SBOM (Software Bill of Materials) generator
 
 =head1 SYNOPSIS
 
-    cpan-sbom --author NAME --meta PATH
     cpan-sbom --distribution NAME@VERSION
+    cpan-sbom --project-directory DIRECTORY [ --project-name NAME --project-version VERSION --project-description TEXT
+                                              --project-license SPDX-LICENSE --project-type BOM-TYPE
+                                              --project-author STRING [--project-author STRING] ]
 
     cpan-sbom [--help|--man|-v]
 
     Options:
-          --author NAME         Author Name
-          --meta PATH           META (or MYMETA) path
+      -o, --output                          Output file. Default bom.json 
 
-          --distribution NAME   Distribution name
+          --distribution NAME@VERSION       Distribution name and version
 
-          --maxdepth=NUM        Max depth (default: 1)
+          --project-directory NAME          Project directory
+          --project-type BOM-TYPE           Project type (default: library)
+          --project-name NAME               Project name (default: project directory name)
+          --project-version VERSION         Project version
+          --project-author STRING           Project author(s)
+          --project-license SPDX-LICENSE    Project SPDX license
+          --project-description TEXT        Project description                  
 
-          --help                Brief help message
-          --man                 Full documentation
-      -v, --version             Print version
+          --maxdepth=NUM                    Max depth (default: 1)
+          --vulnerabilities                 Include Module/Distribution vulnerabilities
+
+          --validate                        Validate the generated SBOM using JSON Schema (default: true)
+          --no-validate
+
+          --list-spdx-licenses              List SPDX licenses
+
+          --debug                           Enable debug messages
+
+          --help                            Brief help message
+          --man                             Full documentation
+      -v, --version                         Print version
+
+    OWASP Dependency Track options:
+          --server-url URL                  Dependency Track URL (eg: https://deptrack.cyclonedx.io)
+          --api-key STRING                  API-Key
+          --skip-tls-check                  Disable SSL/TLS check
+          --project-id STRING               Project ID
+          --project-name NAME               Project name (default: project directory name)
+          --project-version VERSION         Project version
+          --parent-project-id STRING        Parent project ID
 
 =head1 DESCRIPTION
 
@@ -41,9 +67,19 @@ C<cpan-sbom> CPAN SBOM (Software Bill of Materials) generator
 
 =head1 EXAMPLES
 
-    $ cpan-sbom --author GDT --meta path/META.json > bom.json
+    Create SBOM of specific distribution:
 
     $ cpan-sbom --distribution libwww-perl@6.78 > bom.json
+
+    Create SBOM from your project directory:
+
+    $ cpan-sbom \
+        --project-directory . \
+        --project-name "My Cool Application" \
+        --project-type application \
+        --project-version 1.337 \
+        --project-license Artistic-2.0
+        --project-author "Larry Wall <larry@wall.org>"
 
 =head1 SEE ALSO
 

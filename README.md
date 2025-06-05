@@ -5,9 +5,15 @@
 ## Synopsis
 
 ```.bash
-cpan-sbom --author GDT --meta path/META.json > bom.json
 
-cpan-sbom --distribution libwww-perl@6.78 > bom.json
+cpan-sbom --distribution libwww-perl@6.78
+
+cpan-sbom \
+    --project-directory . \
+    --project-name "My Cool Application" \
+    --project-version 1.337 \
+    --project-license Artistic-2.0
+    --project-author "Larry Wall <larry@wall.org>"
 ```
 
 ## Install

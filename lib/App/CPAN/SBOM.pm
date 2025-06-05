@@ -7,9 +7,14 @@ use utf8;
 
 use CPAN::Audit;
 use CPAN::Meta;
+use Cpanel::JSON::XS qw(encode_json);
 use Data::Dumper;
+use File::Basename;
+use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray :config gnu_compat);
+use HTTP::Tiny;
 use MetaCPAN::Client;
+use MIME::Base64;
 use Pod::Usage qw(pod2usage);
 use URI::PackageURL;
 
@@ -26,12 +31,18 @@ use SBOM::CycloneDX::Vulnerability::Source;
 use SBOM::CycloneDX::Vulnerability;
 use SBOM::CycloneDX;
 
-our $VERSION = '1.01';
+our $VERSION = '1.02';
+
+# TODO
+# - Add "description" property in all component
+
+sub DEBUG { $ENV{SBOM_DEBUG} || 0 }
 
 sub cli_error {
-    my ($error) = @_;
+    my ($error, $code) = @_;
     $error =~ s/ at .* line \d+.*//;
     print STDERR "ERROR: $error\n";
+    return $code || 1;
 }
 
 sub run {
@@ -45,13 +56,37 @@ sub run {
             help|h
             man
             v
+            debug|d
+
+            output|o=s
 
             meta=s
-            author=s
+            cpan-id=s
             distribution=s
+
             maxdepth=i
 
+            vulnerabilities!
+            validate!
+
+            project-meta=s
+            project-type=s
+            project-author=s@
+            project-description=s
+            project-directory=s
+            project-license=s
+            project-name=s
+            project-version=s
+
+            server-url=s
+            api-key=s
+            skip-tls-check
+            project-id=s
+            parent-project-id=s
+
             cyclonedx-spec-version=s
+
+            list-spdx-licenses
         )
     ) or pod2usage(-verbose => 0);
 
@@ -59,10 +94,66 @@ sub run {
     pod2usage(-exitstatus => 0, -verbose => 0) if defined $options{help};
 
     if (defined $options{v}) {
+        return show_version();
+    }
 
-        (my $progname = $0) =~ s/.*\///;
+    if ($options{'list-spdx-licenses'}) {
+        say $_ for (sort @{SBOM::CycloneDX::Enum->SPDX_LICENSES});
+        return 0;
+    }
 
-        say <<"VERSION";
+    unless ($options{distribution} || $options{'project-directory'}) {
+        pod2usage(-exitstatus => 0, -verbose => 0);
+    }
+
+    $options{maxdepth} //= 1;
+    $options{validate} //= 1;
+
+    if (defined $options{debug}) {
+        $ENV{SBOM_DEBUG} = 1;
+    }
+
+    my $bom = SBOM::CycloneDX->new;
+
+    if (defined $options{distribution}) {
+
+        my ($distribution, $version) = split '@', $options{distribution};
+
+        return cli_error('Missing distribution version') unless $version;
+
+        make_sbom_from_dist(bom => $bom, distribution => $distribution, version => $version, options => \%options);
+    }
+
+    if (defined $options{'project-directory'}) {
+        make_sbom_from_project(bom => $bom, options => \%options);
+    }
+
+    $bom->metadata->tools->push(cyclonedx_tool());
+
+    my $output_file = $options{output} // 'bom.json';
+
+    say STDERR "Save SBOM to $output_file";
+
+    open my $fh, '>', $output_file or Carp::croak "Failed to open file: $!";
+    say $fh $bom->to_string;
+    close $fh;
+
+    if ($options{validate}) {
+        my @errors = $bom->validate;
+        say STDERR $_ foreach (@errors);
+    }
+
+    if (defined $options{'server-url'} && defined $options{'api-key'}) {
+        submit_bom(bom => $bom, options => \%options);
+    }
+
+}
+
+sub show_version {
+
+    (my $progname = $0) =~ s/.*\///;
+
+    say <<"VERSION";
 $progname version $VERSION
 
 Copyright 2025, Giuseppe Di Terlizzi <gdt\@cpan.org>
@@ -74,96 +165,125 @@ Complete documentation for $progname can be found using 'man $progname'
 or on the internet at <https://metacpan.org/dist/App-CPAN-SBOM>.
 VERSION
 
-        return 0;
-
-    }
-
-    unless (($options{meta} && $options{author}) || $options{distribution}) {
-        pod2usage(-exitstatus => 0, -verbose => 0);
-    }
-
-    $options{maxdepth} //= 1;
-
-    my $bom = SBOM::CycloneDX->new;
-
-    if (defined $options{meta}) {
-        make_sbom_from_meta(
-            bom      => $bom,
-            meta     => $options{meta},
-            author   => $options{author},
-            maxdepth => $options{maxdepth}
-        );
-    }
-
-    if (defined $options{distribution}) {
-        my ($distribution, $version) = split '@', $options{distribution};
-        make_sbom_from_dist(
-            bom          => $bom,
-            distribution => $distribution,
-            version      => $version,
-            maxdepth     => $options{maxdepth}
-        );
-    }
-
-    $bom->metadata->tools->push(cyclonedx_tool());
-
-    say $bom->to_string;
-
-    my @errors = $bom->validate;
-    say STDERR $_ foreach (@errors);
+    return 0;
 
 }
 
+sub make_sbom_from_project {
 
-sub make_sbom_from_meta {
+    my (%params) = @_;
 
-    my (%options) = @_;
+    my $audit_discover = CPAN::Audit::Discover->new;
 
-    return cli_error('META not found') unless -f $options{meta};
+    my $bom     = $params{bom};
+    my $options = $params{options} || {};
 
-    my $bom  = $options{bom};
-    my $meta = CPAN::Meta->load_file($options{meta});
+    my @META_FILES = (qw[META.json META.yml MYMETA.json MYMETA.yml]);
 
-    my @authors = make_authors([$meta->author]);
+    say STDERR 'Generate SBOM';
 
-    my $purl = URI::PackageURL->new(
-        type      => 'cpan',
-        namespace => $options{author},
-        name      => $meta->name,
-        version   => $meta->version
-    );
+    my $project_type        = $options->{'project-type'} || 'library';
+    my $project_directory   = File::Spec->rel2abs($options->{'project-directory'});
+    my $project_meta        = $options->{'project-meta'};
+    my $project_name        = $options->{'project-name'}    || basename($project_directory);
+    my $project_version     = $options->{'project-version'} || 0;
+    my $project_description = $options->{'project-description'};
+    my $project_license     = $options->{'project-license'};
+    my $project_author      = $options->{'project-author'} || [];
 
-    my @external_references = make_external_references($meta->{resources});
+    if ($project_directory) {
+        return cli_error('Directory not found') unless -d $project_directory;
+    }
 
-    my $spdx_license = cpan_meta_to_spdx_license($meta->license);
+    unless ($project_meta) {
+        foreach (@META_FILES) {
+            my $meta_file = File::Spec->catfile($project_directory, $_);
+            if (-f $meta_file) {
+                $project_meta = $meta_file;
+                last;
+            }
+        }
+    }
 
+    my @licenses            = ();
+    my @authors             = ();
+    my @external_references = ();
+    my @dependencies        = ();
+
+    # Use META/MYMETA for populate:
+    # - Name
+    # - Licenses
+    # - Authors
+    # - Dependencies
+
+    if ($project_meta) {
+
+        my $meta = CPAN::Meta->load_file($project_meta);
+
+        $project_name    = $meta->name;
+        $project_version = $meta->version;
+
+        @authors             = make_authors([$meta->author]);
+        @external_references = make_external_references($meta->{resources});
+        @licenses            = (SBOM::CycloneDX::License->new(id => cpan_meta_to_spdx_license($meta->license)));
+
+        # Detect distribution author dependencies
+        # TODO get the author-defined dependency version
+
+        my $prereqs = $meta->effective_prereqs;
+        my $reqs    = $prereqs->requirements_for("runtime", "requires");
+
+        for my $module (sort $reqs->required_modules) {
+            next if $module eq 'perl';
+            push @dependencies, {module => $module};
+        }
+
+    }
+
+    if ($project_license) {
+        @licenses = (SBOM::CycloneDX::License->new(id => $project_license));
+    }
+
+    if (@{$project_author}) {
+        @authors = make_authors($project_author);
+    }
+
+    my $bom_ref = "$project_name\@$project_version";
+    $bom_ref =~ s/\s+/-/g;
+
+    # Build root BOM component
     my $root_component = SBOM::CycloneDX::Component->new(
-        type                => 'library',
-        name                => $meta->name,
-        version             => $meta->version,
-        licenses            => [SBOM::CycloneDX::License->new(id => $spdx_license)],
+        type                => $project_type,
+        name                => $project_name,
+        version             => $project_version,
+        bom_ref             => $bom_ref,
+        licenses            => \@licenses,
         authors             => \@authors,
-        bom_ref             => $purl->to_string,
-        purl                => $purl,
-        external_references => \@external_references
+        external_references => \@external_references,
     );
 
+    if ($project_description) {
+        $root_component->description($project_description);
+    }
+
+    # Add root BOM component in metadata
     $bom->metadata->component($root_component);
 
-    my $prereqs = $meta->effective_prereqs;
-    my $reqs    = $prereqs->requirements_for("runtime", "requires");
+    # Find dependencies from "cpanfile.snapshot" or "cpanfile"
+    if (my @audit_deps = $audit_discover->discover($project_directory)) {
+        @dependencies = @audit_deps;
+    }
 
-    for my $module (sort $reqs->required_modules) {
-
-        next if $module eq 'perl';
+    foreach my $dependency (@dependencies) {
 
         make_dep_compoment(
-            module           => $module,
+            module           => $dependency->{module},
+            dist             => $dependency->{dist},
+            version          => $dependency->{version},
             bom              => $bom,
             parent_component => $root_component,
-            maxdepth         => $options{maxdepth}
+            maxdepth         => $options->{maxdepth}
         );
-
     }
 
     return $root_component;
@@ -172,11 +292,14 @@ sub make_sbom_from_meta {
 
 sub make_sbom_from_dist {
 
-    my (%options) = @_;
+    my (%params) = @_;
 
-    my $distribution = $options{distribution};
-    my $version      = $options{version};
-    my $bom          = $options{bom};
+    my $distribution = $params{distribution};
+    my $version      = $params{version};
+    my $bom          = $params{bom};
+    my $options      = $params{options} || {};
+
+    say STDERR "Generate SBOM for $distribution\@$version";
 
     my $mcpan        = MetaCPAN::Client->new;
     my $release_data = $mcpan->release({all => [{distribution => $distribution}, {version => $version}]});
@@ -217,14 +340,20 @@ sub make_sbom_from_dist {
         external_references => \@external_references
     );
 
+    if (my $abstract = $dist_data->abstract) {
+        $root_component->description($abstract);
+    }
+
     $bom->metadata->component($root_component);
 
-    make_vulnerabilities(
-        bom          => $bom,
-        distribution => $dist_data->distribution,
-        version      => $dist_data->version,
-        bom_ref      => $purl->to_string
-    );
+    if ($options->{vulnerabilities}) {
+        make_vulnerabilities(
+            bom          => $bom,
+            distribution => $dist_data->distribution,
+            version      => $dist_data->version,
+            bom_ref      => $purl->to_string
+        );
+    }
 
     foreach my $dependency (@{$dist_data->dependency}) {
         if ($dependency->{phase} eq 'runtime' and $dependency->{relationship} eq 'requires') {
@@ -234,7 +363,7 @@ sub make_sbom_from_dist {
                 module           => $dependency->{module},
                 bom              => $bom,
                 parent_component => $root_component,
-                maxdepth         => $options{maxdepth}
+                maxdepth         => $options->{maxdepth}
             );
 
         }
@@ -305,33 +434,55 @@ sub _clean_email {
 
 sub make_dep_compoment {
 
-    my (%options) = @_;
+    my (%params) = @_;
 
-    my $module           = $options{module};
-    my $bom              = $options{bom};
-    my $parent_component = $options{parent_component};
-    my $depth            = $options{depth}    || 1;
-    my $maxdepth         = $options{maxdepth} || 1;
+    my $distribution     = $params{dist};
+    my $module           = $params{module};
+    my $version          = $params{version} || 0;
+    my $author           = $params{author};
+    my $bom              = $params{bom};
+    my $parent_component = $params{parent_component};
+    my $depth            = $params{depth}     || 1;
+    my $maxdepth         = $params{maxdepth}  || 1;
+    my $add_vulns        = $params{add_vulns} || 0;
 
-    say STDERR sprintf '%s[%d] Collect %s@%s info (parent component %s)', ("    " x ($depth - 1)), $depth, $module,
-        ($options{version} || '0'), $parent_component->bom_ref;
+    my $mcpan = MetaCPAN::Client->new;
 
-    my $mcpan       = MetaCPAN::Client->new;
-    my $module_data = $mcpan->module($module);
+    if ($module) {
 
-    unless ($module_data) {
-        Carp::carp("Unable to find module ($module) in Meta::CPAN");
-        return;
+        DEBUG
+            and say STDERR sprintf '-- %s[%d] Collect module %s@%s info (parent component %s)',
+            ("    " x ($depth - 1)), $depth, $module, $version, $parent_component->bom_ref;
+
+        my $module_data = $mcpan->module($module);
+
+        unless ($module_data) {
+            Carp::carp("Unable to find module ($module) in Meta::CPAN");
+            return;
+        }
+
+        $author //= $module_data->author;
+
+        $distribution = $module_data->distribution;
+
+        if ($version == 0) {
+            $version = $module_data->version;
+        }
+
     }
 
-    my $author       = $module_data->author;
-    my $release      = $module_data->release;
-    my $distribution = $module_data->distribution;
-    my $version      = $options{version} || $module_data->version;
-
-    my $release_data = $mcpan->release({all => [{distribution => $distribution}, {version => $version}]});
+    my $release_data = $mcpan->release({
+        either => [
+            {all => [{distribution => $distribution}, {version => $version}]},
+            {all => [{distribution => $distribution}, {version => "v$version"}]},
+        ]
+    });
 
     my $dist_data = $release_data->next;
+
+    DEBUG
+        and say STDERR sprintf '-- %s[%d] Collect distribution %s@%s info (parent component %s)',
+        ("    " x ($depth - 1)), $depth, $distribution, $version, $parent_component->bom_ref;
 
     unless ($dist_data) {
         Carp::carp("Unable to find release ($distribution\@$version) in Meta::CPAN");
@@ -339,6 +490,8 @@ sub make_dep_compoment {
     }
 
     my $metadata = $dist_data->metadata;
+
+    $author //= $dist_data->author;
 
     my @authors = make_authors($metadata->{author});
 
@@ -373,11 +526,22 @@ sub make_dep_compoment {
         external_references => \@ext_refs,
     );
 
+    if (my $abstract = $dist_data->abstract) {
+        $component->description($abstract);
+    }
+
     if (!$bom->get_component_by_bom_ref($purl->to_string)) {
         $bom->components->push($component);
     }
 
-    make_vulnerabilities(bom => $bom, distribution => $distribution, version => $version, bom_ref => $purl->to_string);
+    if ($add_vulns) {
+        make_vulnerabilities(
+            bom          => $bom,
+            distribution => $distribution,
+            version      => $version,
+            bom_ref      => $purl->to_string
+        );
+    }
 
     $bom->add_dependency($parent_component, [$component]);
 
@@ -405,12 +569,12 @@ sub make_dep_compoment {
 
 sub make_vulnerabilities {
 
-    my (%options) = @_;
+    my (%params) = @_;
 
-    my $bom          = $options{bom};
-    my $distribution = $options{distribution};
-    my $version      = $options{version};
-    my $bom_ref      = $options{bom_ref};
+    my $bom          = $params{bom};
+    my $distribution = $params{distribution};
+    my $version      = $params{version};
+    my $bom_ref      = $params{bom_ref};
 
     my $audit = CPAN::Audit->new;
 
@@ -433,13 +597,77 @@ sub make_vulnerabilities {
                 description => $description,
                 source      => SBOM::CycloneDX::Vulnerability::Source->new(
                     name => 'NVD',
-                    url  => "https://nvd.nist.gov/vuln/detail/$cve"    # TODO for SBOM::CycloneDX auto generate url
+                    url  => "https://nvd.nist.gov/vuln/detail/$cve"
                 ),
                 affects => [SBOM::CycloneDX::Vulnerability::Affect->new(ref      => $bom_ref)],
                 ratings => [SBOM::CycloneDX::Vulnerability::Rating->new(severity => $severity)]
             );
             $bom->vulnerabilities->add($vulnerability);
         }
+    }
+
+}
+
+sub submit_bom {
+
+    my (%params) = @_;
+
+    my $bom     = $params{bom};
+    my $options = $params{options} || {};
+
+    my $server_url = $options->{'server-url'};
+
+    my $project_directory = File::Spec->rel2abs($options->{'project-directory'});
+    my $project_name      = $options->{'project-name'}    || basename($project_directory);
+    my $project_version   = $options->{'project-version'} || 'main';
+
+    my $bom_string = $bom->to_string;
+
+    $server_url =~ s/\/$//;
+    $server_url .= '/api/v1/bom';
+
+    say $server_url;
+
+    my $bom_payload = {autoCreate => 'true', bom => encode_base64($bom_string, '')};
+
+    if (defined $options->{'project-id'}) {
+        $bom_payload->{project} = $options->{'project-id'};
+    }
+
+    unless (defined $options->{'project-id'}) {
+
+        if ($project_name) {
+            $bom_payload->{projectName} = $project_name;
+        }
+
+        if ($project_version) {
+            $bom_payload->{projectVersion} = $project_version;
+        }
+
+    }
+
+    if (defined $options->{'parent-project-id'}) {
+        $bom_payload->{parentUUID} = $options->{'parent-project-id'};
+    }
+
+    my $verify_ssl = (defined $options->{'skip-tls-check'}) ? 0 : 1;
+
+    my $ua = HTTP::Tiny->new(
+        verify_SSL      => $verify_ssl,
+        default_headers => {'Content-Type' => 'application/json', 'X-Api-Key' => $options->{'api-key'}}
+    );
+
+    say STDERR "Upload BOM in OSWASP Dependency Track ($server_url)";
+
+    my $response = $ua->put($server_url, {content => encode_json($bom_payload)});
+
+    DEBUG and say STDERR "-- Response <-- " . Dumper($response);
+
+    unless ($response->{success}) {
+        return cli_error(sprintf(
+            'Failed to upload BOM file to OWASP Dependency Track: (%s) %s - %s',
+            $response->{status}, $response->{reason}, $response->{content}
+        ));
     }
 
 }
