@@ -31,17 +31,15 @@ use SBOM::CycloneDX::Vulnerability::Source;
 use SBOM::CycloneDX::Vulnerability;
 use SBOM::CycloneDX;
 
-our $VERSION = '1.02';
+our $VERSION = '1.03';
 
-# TODO
-# - Add "description" property in all component
 
 sub DEBUG { $ENV{SBOM_DEBUG} || 0 }
 
 sub cli_error {
     my ($error, $code) = @_;
     $error =~ s/ at .* line \d+.*//;
-    print STDERR "ERROR: $error\n";
+    say STDERR "ERROR: $error";
     return $code || 1;
 }
 
@@ -61,7 +59,6 @@ sub run {
             output|o=s
 
             meta=s
-            cpan-id=s
             distribution=s
 
             maxdepth=i
@@ -93,6 +90,8 @@ sub run {
     pod2usage(-exitstatus => 0, -verbose => 2) if defined $options{man};
     pod2usage(-exitstatus => 0, -verbose => 0) if defined $options{help};
 
+    $options{'project-meta'} //= $options{meta};
+
     if (defined $options{v}) {
         return show_version();
     }
@@ -102,7 +101,7 @@ sub run {
         return 0;
     }
 
-    unless ($options{distribution} || $options{'project-directory'}) {
+    unless ($options{distribution} || $options{'project-meta'} || $options{'project-directory'}) {
         pod2usage(-exitstatus => 0, -verbose => 0);
     }
 
@@ -124,7 +123,7 @@ sub run {
         make_sbom_from_dist(bom => $bom, distribution => $distribution, version => $version, options => \%options);
     }
 
-    if (defined $options{'project-directory'}) {
+    if (defined $options{'project-directory'} || defined $options{'project-meta'}) {
         make_sbom_from_project(bom => $bom, options => \%options);
     }
 
@@ -184,7 +183,7 @@ sub make_sbom_from_project {
 
     my $project_type        = $options->{'project-type'} || 'library';
     my $project_directory   = File::Spec->rel2abs($options->{'project-directory'});
-    my $project_meta        = $options->{'project-meta'};
+    my $project_meta        = $options->{'project-meta'}    || $options->{'meta'};
     my $project_name        = $options->{'project-name'}    || basename($project_directory);
     my $project_version     = $options->{'project-version'} || 0;
     my $project_description = $options->{'project-description'};
@@ -602,6 +601,7 @@ sub make_vulnerabilities {
                 affects => [SBOM::CycloneDX::Vulnerability::Affect->new(ref      => $bom_ref)],
                 ratings => [SBOM::CycloneDX::Vulnerability::Rating->new(severity => $severity)]
             );
+
             $bom->vulnerabilities->add($vulnerability);
         }
     }
@@ -615,6 +615,14 @@ sub submit_bom {
     my $bom     = $params{bom};
     my $options = $params{options} || {};
 
+    $options->{'server-url'}        //= $ENV{DTRACK_URL};
+    $options->{'api-key'}           //= $ENV{DTRACK_API_KEY};
+    $options->{'project-id'}        //= $ENV{DTRACK_PROJECT_ID};
+    $options->{'project-name'}      //= $ENV{DTRACK_PROJECT_NAME};
+    $options->{'project-version'}   //= $ENV{DTRACK_PROJECT_VERSION};
+    $options->{'parent-project-id'} //= $ENV{DTRACK_PARENT_PROJECT_ID};
+    $options->{'skip-tls-check'}    //= $ENV{DTRACK_SKIP_TLS_CHECK};
+
     my $server_url = $options->{'server-url'};
 
     my $project_directory = File::Spec->rel2abs($options->{'project-directory'});
@@ -625,8 +633,6 @@ sub submit_bom {
 
     $server_url =~ s/\/$//;
     $server_url .= '/api/v1/bom';
-
-    say $server_url;
 
     my $bom_payload = {autoCreate => 'true', bom => encode_base64($bom_string, '')};
 
