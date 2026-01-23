@@ -17,6 +17,7 @@ use MetaCPAN::Client;
 use MIME::Base64;
 use Pod::Usage qw(pod2usage);
 use URI::PackageURL;
+use Try::Tiny;
 
 use SBOM::CycloneDX::Component;
 use SBOM::CycloneDX::ExternalReference;
@@ -58,6 +59,7 @@ sub run {
 
             output|o=s
 
+            file=s
             meta=s
             distribution=s
 
@@ -101,7 +103,7 @@ sub run {
         return 0;
     }
 
-    unless ($options{distribution} || $options{'project-meta'} || $options{'project-directory'}) {
+    unless ($options{distribution} || $options{'project-meta'} || $options{'project-directory'} || $options{'file'}) {
         pod2usage(-exitstatus => 0, -verbose => 0);
     }
 
@@ -127,6 +129,10 @@ sub run {
         make_sbom_from_project(bom => $bom, options => \%options);
     }
 
+    if (defined $options{'file'}) {
+        make_sbom_from_cpanfile(bom => $bom, options => \%options);
+    }
+
     $bom->metadata->tools->push(cyclonedx_tool());
 
     my $output_file = $options{output} // 'bom.json';
@@ -138,7 +144,12 @@ sub run {
     close $fh;
 
     if ($options{validate}) {
-        my @errors = $bom->validate;
+        # Sort errors based on component number
+        my @errors = sort {
+            my ($a_component_id) = $a->{path} =~ m{/components/(\d+)};
+            my ($b_component_id) = $b->{path} =~ m{/components/(\d+)};
+            $a_component_id <=> $b_component_id;
+        } $bom->validate;
         say STDERR $_ foreach (@errors);
     }
 
@@ -372,6 +383,47 @@ sub make_sbom_from_dist {
 
 }
 
+sub make_sbom_from_cpanfile {
+
+    my (%params) = @_;
+
+    my $audit_discover = CPAN::Audit::Discover::Cpanfile->new;
+
+    my $bom     = $params{bom};
+    my $options = $params{options} || {};
+
+    say STDERR 'Generate SBOM from cpanfile';
+
+    my @dependencies        = ();
+
+    # Build root BOM component
+    my $root_component = SBOM::CycloneDX::Component->new(
+        type                => "application",
+        name                => "Installed perl modules",
+        bom_ref             => 'KAC',
+        description         => "An inventory of all installed perl modules on the host",
+        version             => sprintf("v%vd", $^V), # Perl version
+    );
+
+    # Find dependencies from "cpanfile"
+    if (my @audit_deps = $audit_discover->discover($options->{ file })) {
+        @dependencies = @audit_deps;
+    }
+
+    for my $dependency (@dependencies) {
+        make_dep_compoment(
+            module           => $dependency->{module},
+            dist             => $dependency->{dist},
+            version          => $dependency->{version},
+            bom              => $bom,
+            parent_component => $root_component,
+            maxdepth         => $options->{maxdepth}
+        );
+    }
+
+    return $root_component;
+}
+
 sub make_external_references {
 
     my $resources = shift;
@@ -394,6 +446,11 @@ sub make_external_references {
 
 }
 
+#
+# Note: We are only capturing the first author. The author section
+# on CPAN is free-form and there are too many exceptions to parse
+# it accurately.
+#
 sub make_authors {
 
     my $metadata_authors = shift;
@@ -401,16 +458,26 @@ sub make_authors {
     my @authors = ();
 
     foreach my $metadata_author (@{$metadata_authors}) {
-        if ($metadata_author =~ /(.*) <(.*)>/) {
-            my ($name, $email) = $metadata_author =~ /(.*) <(.*)>/;
-            push @authors, SBOM::CycloneDX::OrganizationalContact->new(name => $name, email => _clean_email($email));
+        my ($name, $email) = ($metadata_author, '');
+        my $end_match;
+        if ($metadata_author =~ m/(.*?),?\s+C?<(.*?)>(?:\s*>?)/g) {
+            ($name, $email) = ($1, $2);
         }
-        elsif ($metadata_author =~ /(.*), (.*)/) {
-            my ($name, $email) = $metadata_author =~ /(.*), (.*)/;
+        elsif ($metadata_author =~ m/(.*?),?\s+(\S+@\S+)/g) {
+            ($name, $email) = ($1, $2);
+        }
+        elsif ($metadata_author =~ m/^\s*(.*?),/g) {
+            ($name) = ($1);
+        }
+
+        $name =~ s/,$//;
+        $email =~ tr/<>//d;
+        $email =~ s/\s+//g;
+        if ($email) {
             push @authors, SBOM::CycloneDX::OrganizationalContact->new(name => $name, email => _clean_email($email));
         }
         else {
-            push @authors, SBOM::CycloneDX::OrganizationalContact->new(name => $metadata_author);
+            push @authors, SBOM::CycloneDX::OrganizationalContact->new(name => $name);
         }
     }
 
@@ -453,18 +520,28 @@ sub make_dep_compoment {
             and say STDERR sprintf '-- %s[%d] Collect module %s@%s info (parent component %s)',
             ("    " x ($depth - 1)), $depth, $module, $version, $parent_component->bom_ref;
 
-        my $module_data = $mcpan->module($module);
+        # Fix some letter-casing issues
+        $module = 'perl' if ($module eq 'Perl');
+
+        my $mcpan_err = '';
+        my $module_data = try {
+          $mcpan->module($module);
+         }
+        catch {
+          $mcpan_err = $_;
+          undef;
+         };
 
         unless ($module_data) {
-            Carp::carp("Unable to find module ($module) in Meta::CPAN");
-            return;
-        }
+          warn("Unable to find module ($module) in Meta::CPAN: $mcpan_err");
+          return;
+         }
 
         $author //= $module_data->author;
 
         $distribution = $module_data->distribution;
 
-        if ($version == 0) {
+        if (!$version) {
             $version = $module_data->version;
         }
 
@@ -475,6 +552,7 @@ sub make_dep_compoment {
 
     }
 
+    $version =~ s/^v//;
     my $release_data = $mcpan->release({
         either => [
             {all => [{distribution => $distribution}, {version => $version}]},
@@ -489,7 +567,7 @@ sub make_dep_compoment {
         ("    " x ($depth - 1)), $depth, $distribution, $version, $parent_component->bom_ref;
 
     unless ($dist_data) {
-        Carp::carp("Unable to find release ($distribution\@$version) in Meta::CPAN");
+        warn("Unable to find release ($distribution\@$version) in Meta::CPAN");
         return;
     }
 

@@ -14,6 +14,7 @@ WriteMakefile(
     EXE_FILES          => ['bin/cpan-sbom'],
     CONFIGURE_REQUIRES => {'ExtUtils::MakeMaker' => '0'},
     TEST_REQUIRES      => {
+        'Test2::V0'           => '0',
         'Test::More'          => '0',
         'Test::File'          => '0',
         'File::Temp'          => '0',
