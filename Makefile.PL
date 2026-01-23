@@ -13,7 +13,12 @@ WriteMakefile(
     PL_FILES           => {},
     EXE_FILES          => ['bin/cpan-sbom'],
     CONFIGURE_REQUIRES => {'ExtUtils::MakeMaker' => '0'},
-    TEST_REQUIRES      => {'Test::More'          => '0'},
+    TEST_REQUIRES      => {
+        'Test2::V0'           => '0',
+        'Test::More'          => '0',
+        'Test::File'          => '0',
+        'File::Temp'          => '0',
+    },
     PREREQ_PM          => {
         'SBOM::CycloneDX'  => 0,
         'CPAN::Audit'      => 0,
@@ -22,6 +27,7 @@ WriteMakefile(
         'MIME::Base64'     => 0,
         'HTTP::Tiny'       => 0,
         'Cpanel::JSON::XS' => 0,
+        'Net::IDN::Encode' => 0,
     },
     META_MERGE => {
         'meta-spec' => {version => 2},
