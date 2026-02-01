@@ -31,7 +31,7 @@ use SBOM::CycloneDX::Vulnerability::Source;
 use SBOM::CycloneDX::Vulnerability;
 use SBOM::CycloneDX;
 
-our $VERSION = '1.03';
+our $VERSION = '1.03_1';
 
 
 sub DEBUG { $ENV{SBOM_DEBUG} || 0 }
@@ -112,7 +112,16 @@ sub run {
         $ENV{SBOM_DEBUG} = 1;
     }
 
-    my $bom = SBOM::CycloneDX->new;
+    my $bom          = SBOM::CycloneDX->new;
+    my $spec_version = '1.5';
+
+    if (defined $options{'cyclonedx-spec-version'}) {
+        $spec_version = $options{'cyclonedx-spec-version'};
+    }
+
+    if ($spec_version >= 1.2 && $spec_version <= 1.7) {
+        $bom->spec_version($spec_version);
+    }
 
     if (defined $options{distribution}) {
 
@@ -155,7 +164,7 @@ sub show_version {
     say <<"VERSION";
 $progname version $VERSION
 
-Copyright 2025, Giuseppe Di Terlizzi <gdt\@cpan.org>
+Copyright 2025-2026, Giuseppe Di Terlizzi <gdt\@cpan.org>
 
 This program is part of the "App-CPAN-SBOM" distribution and is free software;
 you can redistribute it and/or modify it under the same terms as Perl itself.
@@ -224,7 +233,7 @@ sub make_sbom_from_project {
 
         @authors             = make_authors([$meta->author]);
         @external_references = make_external_references($meta->{resources});
-        @licenses            = (SBOM::CycloneDX::License->new(id => cpan_meta_to_spdx_license($meta->license) || 'NONE'));
+        @licenses = (SBOM::CycloneDX::License->new(id => cpan_meta_to_spdx_license($meta->license) || 'NONE'));
 
         # Detect distribution author dependencies
         # TODO get the author-defined dependency version
