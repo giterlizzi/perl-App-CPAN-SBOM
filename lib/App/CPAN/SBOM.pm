@@ -224,7 +224,7 @@ sub make_sbom_from_project {
 
         @authors             = make_authors([$meta->author]);
         @external_references = make_external_references($meta->{resources});
-        @licenses            = (SBOM::CycloneDX::License->new(id => cpan_meta_to_spdx_license($meta->license)));
+        @licenses            = (SBOM::CycloneDX::License->new(id => cpan_meta_to_spdx_license($meta->license) || 'NONE'));
 
         # Detect distribution author dependencies
         # TODO get the author-defined dependency version
@@ -324,7 +324,7 @@ sub make_sbom_from_dist {
     my @external_references = make_external_references($dist_data->metadata->{resources});
 
     my $license      = join ' AND ', @{$metadata->{license}};
-    my $spdx_license = cpan_meta_to_spdx_license($license);
+    my $spdx_license = cpan_meta_to_spdx_license($license) || 'NONE';
 
     my $bom_license = SBOM::CycloneDX::License->new(($spdx_license) ? {id => $spdx_license} : {name => $license});
 
@@ -495,7 +495,7 @@ sub make_dep_compoment {
     my @authors = make_authors($metadata->{author});
 
     my $license      = join ' AND ', @{$dist_data->metadata->{license}};
-    my $spdx_license = cpan_meta_to_spdx_license($license);
+    my $spdx_license = cpan_meta_to_spdx_license($license) || 'NONE';
 
     my $bom_license = SBOM::CycloneDX::License->new(($spdx_license) ? {id => $spdx_license} : {name => $license});
 
