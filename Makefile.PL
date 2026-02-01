@@ -18,7 +18,7 @@ WriteMakefile(
         'SBOM::CycloneDX'  => 0,
         'CPAN::Audit'      => 0,
         'MetaCPAN::Client' => 0,
-        'URI::PackageURL'  => '2.22',
+        'URI::PackageURL'  => '2.25',
         'MIME::Base64'     => 0,
         'HTTP::Tiny'       => 0,
         'Cpanel::JSON::XS' => 0,
@@ -33,7 +33,7 @@ WriteMakefile(
                 web  => 'https://github.com/giterlizzi/perl-App-CPAN-SBOM'
             },
         },
-        x_purl => 'pkg:cpan/GDT/App-CPAN-SBOM'
+        x_purl => 'pkg:cpan/App-CPAN-SBOM'
     },
     dist  => {COMPRESS => 'gzip -9f', SUFFIX => 'gz'},
     clean => {FILES    => 'App-CPAN-SBOM-*'},

@@ -31,7 +31,7 @@ use SBOM::CycloneDX::Vulnerability::Source;
 use SBOM::CycloneDX::Vulnerability;
 use SBOM::CycloneDX;
 
-our $VERSION = '1.03_1';
+our $VERSION = '1.03';
 
 
 sub DEBUG { $ENV{SBOM_DEBUG} || 0 }
@@ -324,10 +324,11 @@ sub make_sbom_from_dist {
     my @authors = make_authors($metadata->{author});
 
     my $purl = URI::PackageURL->new(
-        type      => 'cpan',
-        namespace => $dist_data->author,
-        name      => $dist_data->distribution,
-        version   => $dist_data->version
+        type       => 'cpan',
+        name       => $dist_data->distribution,
+        version    => $dist_data->version,
+        qualifiers => {author => $dist_data->author},
+        validate   => 0
     );
 
     my @external_references = make_external_references($dist_data->metadata->{resources});
@@ -508,7 +509,13 @@ sub make_dep_compoment {
 
     my $bom_license = SBOM::CycloneDX::License->new(($spdx_license) ? {id => $spdx_license} : {name => $license});
 
-    my $purl = URI::PackageURL->new(type => 'cpan', namespace => $author, name => $distribution, version => $version);
+    my $purl = URI::PackageURL->new(
+        type       => 'cpan',
+        name       => $distribution,
+        version    => $version,
+        qualifiers => {author => $author},
+        validate   => 0
+    );
 
     my @ext_refs = make_external_references($dist_data->metadata->{resources});
 
