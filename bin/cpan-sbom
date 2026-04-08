@@ -50,6 +50,7 @@ cpan-sbom - CPAN SBOM (Software Bill of Materials) generator
           --no-validate
 
           --list-spdx-licenses              List SPDX licenses
+          --cyclonedx-spec-version VERSION  CycloneDX Specification version to use (default: 1.5)
 
           --debug                           Enable debug messages
 

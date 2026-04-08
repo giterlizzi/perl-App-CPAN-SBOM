@@ -1,5 +1,10 @@
 Change history for App-CPAN-SBOM
 
+1.?? 2026-02-??
+    - Added "cyclonedx-spec-version" option to allows specify CycloneDX
+      specification version (default: 1.5)
+    - Switched to upcoming CPAN PURL type
+
 1.03 2025-08-11
     - Added "DTRACK_*" env variables for CI/CD
     - Improved BOM generation
