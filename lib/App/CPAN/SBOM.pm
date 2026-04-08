@@ -336,10 +336,11 @@ sub make_sbom_from_dist {
 
     my @external_references = make_external_references($dist_data->metadata->{resources});
 
-    my $license      = join ' AND ', @{$metadata->{license}};
-    my $spdx_license = cpan_meta_to_spdx_license($license) || 'NONE';
+    my $license_name = join ' AND ', @{$metadata->{license}};
+    my $license_id   = cpan_meta_to_spdx_license($license_name) || 'NONE';
+    my $license_info = ($license_id ne 'NONE') ? {id => $license_id} : {name => $license_name};
 
-    my $bom_license = SBOM::CycloneDX::License->new(($spdx_license) ? {id => $spdx_license} : {name => $license});
+    my $bom_license = SBOM::CycloneDX::License->new($license_info);
 
     my $root_component = SBOM::CycloneDX::Component->new(
         type                => 'library',
@@ -513,10 +514,12 @@ sub make_dep_compoment {
 
     my @authors = make_authors($metadata->{author});
 
-    my $license      = join ' AND ', @{$dist_data->metadata->{license}};
-    my $spdx_license = cpan_meta_to_spdx_license($license) || 'NONE';
+    # Distribution License
+    my $license_name = join ' AND ', @{$dist_data->metadata->{license}};
+    my $license_id   = cpan_meta_to_spdx_license($license_name) || 'NONE';
+    my $license      = ($license_id ne 'NONE') ? {id => $license_id} : {name => $license_name};
 
-    my $bom_license = SBOM::CycloneDX::License->new(($spdx_license) ? {id => $spdx_license} : {name => $license});
+    my $bom_license = SBOM::CycloneDX::License->new($license);
 
     my $purl = URI::PackageURL->new(
         type       => 'cpan',
