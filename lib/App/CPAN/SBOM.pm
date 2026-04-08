@@ -468,6 +468,11 @@ sub make_dep_compoment {
             $version = $module_data->version;
         }
 
+        # Standardize the core perl distribution version
+        if ($distribution eq 'perl') {
+            $version =~ s/^v?5\.([1-9]\d+)(.*)$/5.0$1*/;
+        }
+
     }
 
     my $release_data = $mcpan->release({
