@@ -602,7 +602,7 @@ sub add_authors_to_component {
 
     # Use "authors" property in CycloneDX >= 1.6
     if ($bom->spec_version >= 1.6) {
-        $component->authors(@{$authors});
+        $component->authors(\@{$authors});
     }
     else {
         my $author = join "\n", map { sprintf('%s <%s>', $_->name, $_->email) } @{$authors};
