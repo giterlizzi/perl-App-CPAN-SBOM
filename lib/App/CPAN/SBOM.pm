@@ -136,6 +136,7 @@ sub run {
         make_sbom_from_project(bom => $bom, options => \%options);
     }
 
+    $bom->metadata->timestamp(time);
     $bom->metadata->tools->push(cyclonedx_tool());
 
     my $output_file = $options{output} // 'bom.json';
