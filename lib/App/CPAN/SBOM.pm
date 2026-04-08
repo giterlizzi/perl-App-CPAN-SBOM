@@ -464,6 +464,8 @@ sub make_dep_compoment {
 
     if ($module) {
 
+        $module = 'perl' if ($module eq 'Perl');
+
         DEBUG
             and say STDERR sprintf '-- %s[%d] Collect module %s@%s info (parent component %s)',
             ("    " x ($depth - 1)), $depth, $module, $version, $parent_component->bom_ref;
@@ -479,7 +481,7 @@ sub make_dep_compoment {
 
         $distribution = $module_data->distribution;
 
-        if ($version == 0) {
+        if (!$version) {
             $version = $module_data->version;
         }
 
@@ -489,6 +491,8 @@ sub make_dep_compoment {
         }
 
     }
+
+    $version =~ s/^v//;
 
     my $release_data = $mcpan->release({
         either => [
