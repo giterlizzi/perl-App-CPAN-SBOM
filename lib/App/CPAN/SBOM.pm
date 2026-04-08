@@ -266,9 +266,10 @@ sub make_sbom_from_project {
         version             => $project_version,
         bom_ref             => $bom_ref,
         licenses            => \@licenses,
-        authors             => \@authors,
         external_references => \@external_references,
     );
+
+    add_authors_to_component(bom => $bom, component => $root_component, authors => \@authors);
 
     if ($project_description) {
         $root_component->description($project_description);
@@ -343,11 +344,12 @@ sub make_sbom_from_dist {
         name                => $dist_data->name,
         version             => $dist_data->version,
         licenses            => [$bom_license],
-        authors             => \@authors,
         bom_ref             => $purl->to_string,
         purl                => $purl,
         external_references => \@external_references
     );
+
+    add_authors_to_component(bom => $bom, component => $root_component, authors => \@authors);
 
     if (my $abstract = $dist_data->abstract) {
         $root_component->description($abstract);
@@ -534,12 +536,13 @@ sub make_dep_compoment {
         name                => $distribution,
         version             => $version,
         licenses            => [$bom_license],
-        authors             => \@authors,
         bom_ref             => $purl->to_string,
         purl                => $purl,
         hashes              => $hashes,
         external_references => \@ext_refs,
     );
+
+    add_authors_to_component(bom => $bom, component => $component, authors => \@authors);
 
     if (my $abstract = $dist_data->abstract) {
         $component->description($abstract);
@@ -579,6 +582,25 @@ sub make_dep_compoment {
     }
 
     return $component;
+
+}
+
+sub add_authors_to_component {
+
+    my (%params) = @_;
+
+    my $bom       = delete $params{bom};
+    my $component = delete $params{component};
+    my $authors   = delete $params{authors};
+
+    # Use "authors" property in CycloneDX >= 1.6
+    if ($bom->spec_version >= 1.6) {
+        $component->authors(@{$authors});
+    }
+    else {
+        my $author = join "\n", map { sprintf('%s <%s>', $_->name, $_->email) } @{$authors};
+        $component->author($author);
+    }
 
 }
 
