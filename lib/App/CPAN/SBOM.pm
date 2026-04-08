@@ -31,7 +31,7 @@ use SBOM::CycloneDX::Vulnerability::Source;
 use SBOM::CycloneDX::Vulnerability;
 use SBOM::CycloneDX;
 
-our $VERSION = '1.03';
+our $VERSION = '1.03_1';
 
 
 sub DEBUG { $ENV{SBOM_DEBUG} || 0 }
@@ -112,8 +112,9 @@ sub run {
         $ENV{SBOM_DEBUG} = 1;
     }
 
-    my $bom          = SBOM::CycloneDX->new;
-    my $spec_version = '1.5';
+    my $bom = SBOM::CycloneDX->new;
+
+    my $spec_version = '1.6';
 
     if (defined $options{'cyclonedx-spec-version'}) {
         $spec_version = $options{'cyclonedx-spec-version'};
