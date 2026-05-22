@@ -1,10 +1,10 @@
 Change history for App-CPAN-SBOM
 
-1.?? 2026-02-??
+1.04 2026-05-22
     - Added "cyclonedx-spec-version" option to allows specify CycloneDX
       specification version (default: 1.5)
     - Switched to upcoming CPAN PURL type
-    - Fixed incompatibility with SBOM::CycloneDX v1.08
+    - Fixed incompatibility with SBOM::CycloneDX v1.08 (giterlizzi/perl-App-CPAN-SBOM#9)
 
 1.03 2025-08-11
     - Added "DTRACK_*" env variables for CI/CD

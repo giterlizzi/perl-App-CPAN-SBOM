@@ -31,7 +31,7 @@ use SBOM::CycloneDX::Vulnerability::Source;
 use SBOM::CycloneDX::Vulnerability;
 use SBOM::CycloneDX;
 
-our $VERSION = '1.03_1';
+our $VERSION = '1.04';
 
 
 sub DEBUG { $ENV{SBOM_DEBUG} || 0 }
