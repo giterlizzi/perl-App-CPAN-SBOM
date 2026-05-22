@@ -538,11 +538,11 @@ sub make_dep_compoment {
     my $hashes = SBOM::CycloneDX::List->new;
 
     if (my $checksum = $dist_data->checksum_sha256) {
-        $hashes->add(SBOM::CycloneDX::Hash->new(alg => 'sha-256', content => $checksum));
+        $hashes->add(SBOM::CycloneDX::Hash->new(alg => 'SHA-256', content => $checksum));
     }
 
     if (my $checksum = $dist_data->checksum_md5) {
-        $hashes->add(SBOM::CycloneDX::Hash->new(alg => 'md5', content => $checksum));
+        $hashes->add(SBOM::CycloneDX::Hash->new(alg => 'MD5', content => $checksum));
     }
 
     my $component = SBOM::CycloneDX::Component->new(
